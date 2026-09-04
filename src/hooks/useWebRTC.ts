@@ -35,10 +35,11 @@ export function useWebRTC(device: DeviceInfo) {
       setStatus('waiting')
       setErrorMessage(null)
 
-      // If peer already in room, initiate WebRTC connection
+      // If peer already in room, initiate WebRTC connection deterministically
       if (peers.length > 0) {
         const peer = peers[0]
-        initiateWebRTCConnection(peer.peerId, true)
+        const isInitiator = device.peerId < peer.peerId
+        initiateWebRTCConnection(peer.peerId, isInitiator)
         setConnectedPeer(peer)
       }
     })

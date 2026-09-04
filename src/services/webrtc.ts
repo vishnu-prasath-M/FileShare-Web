@@ -24,13 +24,23 @@ export class WebRTCConnection {
     const defaultIceServers: RTCIceServer[] = [
       { urls: 'stun:stun.l.google.com:19302' },
       { urls: 'stun:stun1.l.google.com:19302' },
-      { urls: 'stun:stun2.l.google.com:19302' }
+      { urls: 'stun:stun2.l.google.com:19302' },
+      { urls: 'stun:stun3.l.google.com:19302' },
+      { urls: 'stun:stun4.l.google.com:19302' },
+      { urls: 'stun:stun.cloudflare.com:3478' }
     ]
 
     // Read environment STUN/TURN if present
     if (import.meta.env.VITE_STUN_SERVERS) {
       try {
         const parsed = JSON.parse(import.meta.env.VITE_STUN_SERVERS)
+        if (Array.isArray(parsed)) defaultIceServers.push(...parsed)
+      } catch {}
+    }
+
+    if (import.meta.env.VITE_TURN_SERVERS) {
+      try {
+        const parsed = JSON.parse(import.meta.env.VITE_TURN_SERVERS)
         if (Array.isArray(parsed)) defaultIceServers.push(...parsed)
       } catch {}
     }
@@ -80,7 +90,6 @@ export class WebRTCConnection {
 
   private setupDataChannel(channel: RTCDataChannel) {
     channel.binaryType = 'arraybuffer'
-    // Set 256KB low threshold for backpressure
     channel.bufferedAmountLowThreshold = 256 * 1024
 
     channel.onopen = () => {
@@ -123,11 +132,10 @@ export class WebRTCConnection {
     try {
       if (signalData.type === 'offer') {
         await this.peerConnection.setRemoteDescription(new RTCSessionDescription(signalData.sdp))
-        // Process queued ICE candidates
         while (this.iceCandidateQueue.length > 0) {
           const candidate = this.iceCandidateQueue.shift()
           if (candidate) {
-            await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate))
+            await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {})
           }
         }
         const answer = await this.peerConnection.createAnswer()
@@ -141,12 +149,12 @@ export class WebRTCConnection {
         while (this.iceCandidateQueue.length > 0) {
           const candidate = this.iceCandidateQueue.shift()
           if (candidate) {
-            await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate))
+            await this.peerConnection.addIceCandidate(new RTCIceCandidate(candidate)).catch(() => {})
           }
         }
       } else if (signalData.type === 'candidate' && signalData.candidate) {
         if (this.peerConnection.remoteDescription && this.peerConnection.remoteDescription.type) {
-          await this.peerConnection.addIceCandidate(new RTCIceCandidate(signalData.candidate))
+          await this.peerConnection.addIceCandidate(new RTCIceCandidate(signalData.candidate)).catch(() => {})
         } else {
           this.iceCandidateQueue.push(signalData.candidate)
         }

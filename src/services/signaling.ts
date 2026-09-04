@@ -12,6 +12,8 @@ export class SignalingService {
   private isIntentionalClose = false
   private currentRoomId: string | null = null
   private currentDevice: DeviceInfo | null = null
+  private pendingMessages: any[] = []
+  private isConnecting = false
 
   constructor(customUrl?: string) {
     if (customUrl) {
@@ -27,15 +29,30 @@ export class SignalingService {
   }
 
   public connect(): Promise<void> {
-    return new Promise((resolve, reject) => {
+    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
+      return Promise.resolve()
+    }
+
+    return new Promise((resolve) => {
       this.isIntentionalClose = false
+      this.isConnecting = true
+      this.emit('connecting', null)
+
       try {
         this.ws = new WebSocket(this.url)
 
         this.ws.onopen = () => {
+          this.isConnecting = false
           this.emit('connected', null)
           this.startHeartbeat()
-          // If we had a room and device, rejoin after reconnection
+
+          // Flush queued messages
+          while (this.pendingMessages.length > 0) {
+            const msg = this.pendingMessages.shift()
+            this.send(msg)
+          }
+
+          // If room was active, re-join
           if (this.currentRoomId && this.currentDevice) {
             this.joinRoom(this.currentRoomId, this.currentDevice)
           }
@@ -52,6 +69,7 @@ export class SignalingService {
         }
 
         this.ws.onclose = () => {
+          this.isConnecting = false
           this.stopHeartbeat()
           this.emit('disconnected', null)
           if (!this.isIntentionalClose) {
@@ -60,11 +78,18 @@ export class SignalingService {
         }
 
         this.ws.onerror = (err) => {
-          this.emit('error', 'Connection error')
-          reject(err)
+          this.isConnecting = false
+          console.warn('[Signaling] WebSocket error, will reconnect...', err)
+          this.emit('warning', 'Connecting to signaling server...')
+          if (!this.isIntentionalClose) {
+            this.scheduleReconnect()
+          }
+          resolve() // Resolve so callers don't reject abruptly
         }
       } catch (err) {
-        reject(err)
+        this.isConnecting = false
+        this.scheduleReconnect()
+        resolve()
       }
     })
   }
@@ -118,6 +143,12 @@ export class SignalingService {
   private send(msg: any) {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(msg))
+    } else {
+      // Queue message until socket is open
+      this.pendingMessages.push(msg)
+      if (!this.isConnecting && (!this.ws || this.ws.readyState === WebSocket.CLOSED)) {
+        this.connect()
+      }
     }
   }
 
@@ -140,7 +171,7 @@ export class SignalingService {
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = null
       this.connect().catch(() => {})
-    }, 3000)
+    }, 2500)
   }
 
   public on(event: string, callback: SignalingEventCallback) {
@@ -178,6 +209,7 @@ export class SignalingService {
     }
     this.currentRoomId = null
     this.currentDevice = null
+    this.pendingMessages = []
     this.listeners.clear()
   }
 }
