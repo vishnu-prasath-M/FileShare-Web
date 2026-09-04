@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: droplink-signaling
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server/signaling-dev.js
+    envVars:
+      - key: PORT
+        value: 10000
